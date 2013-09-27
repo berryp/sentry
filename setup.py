@@ -116,7 +116,7 @@ class PyTest(TestCommand):
 
 setup(
     name='sentry',
-    version='6.2.3.login_patch',
+    version='6.2.3.login_patch2',
     author='David Cramer, Berry Phillips',
     author_email='dcramer@gmail.com, berryphillips@gmail.com',
     url='http://www.getsentry.com',

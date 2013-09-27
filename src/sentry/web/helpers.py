@@ -79,7 +79,7 @@ def get_login_url(reset=False, request=None):
 
     if settings.LOGIN_URL_NEXT_PARAM:
         host = settings.SENTRY_URL_PREFIX \
-                if 'SENTRY_URL_PREFIX' in settings \
+                if settings.SENTRY_URL_PREFIX \
                 else request.build_absolute_uri().split('?')[0]
         return '%s?%s=%s' % (_LOGIN_URL,
                 settings.LOGIN_URL_NEXT_PARAM, host)
