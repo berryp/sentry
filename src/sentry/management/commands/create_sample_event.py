@@ -13,7 +13,7 @@ class Command(BaseCommand):
     help = 'Creates a sample event in Sentry (if applicable)'
 
     option_list = BaseCommand.option_list + (
-        make_option('--project', dest='project'),
+        make_option('--project', dest='project', help="project ID or team-slug/project-slug"),
         make_option('--platform', dest='platform'),
     )
 
@@ -24,7 +24,7 @@ class Command(BaseCommand):
         from sentry.utils.samples import create_sample_event
 
         if not options['project']:
-            project = Project.objects.get(settings.SENTRY_DEFAULT_PROJECT)
+            project = Project.objects.get(id=settings.SENTRY_PROJECT)
         else:
             if options['project'].isdigit():
                 project = Project.objects.get(id=options['project'])

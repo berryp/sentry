@@ -11,19 +11,26 @@
         initialize: function(){
             Backbone.View.prototype.initialize.apply(this, arguments);
 
+            _.bindAll(this, 'updateCount', 'updateUsersSeen', 'updateLastSeen',
+                'updateResolved', 'updateHasSeen', 'renderSparkline', 'updateBookmarked',
+                'render');
+
             this.model.on({
                 'change:count': this.updateCount,
+                'change:usersSeen': this.updateUsersSeen,
                 'change:lastSeen': this.updateLastSeen,
-                'change:isBookmarked': this.render,
+                'change:isBookmarked': this.updateBookmarked,
                 'change:isResolved': this.updateResolved,
+                'change:hasSeen': this.updateHasSeen,
                 'change:historicalData': this.renderSparkline
             }, this);
         },
 
         render: function(){
             var data = this.model.toJSON();
-            data.loggerUrl = app.config.urlPrefix + '/' + app.config.teamId +
-                '/' + app.config.projectId + '/?logger=' + data.logger;
+            data.projectUrl = app.config.urlPrefix + '/' + app.config.teamId +
+                '/' + data.project.slug + '/';
+            data.loggerUrl = data.projectUrl + '?logger=' + data.logger;
 
             this.$el.html(this.template(data));
             this.$el.attr('data-id', this.model.id);
@@ -42,6 +49,16 @@
             }, this));
             this.renderSparkline();
             this.updateResolved();
+            this.updateHasSeen();
+            this.updateBookmarked();
+        },
+
+        updateBookmarked: function(){
+            if (this.model.get('isBookmarked')) {
+                this.$el.find('a[data-action=bookmark]').addClass('checked');
+            } else {
+                this.$el.find('a[data-action=bookmark]').removeClass('checked');
+            }
         },
 
         updateResolved: function(){
@@ -49,6 +66,14 @@
                 this.$el.addClass('resolved');
             } else {
                 this.$el.removeClass('resolved');
+            }
+        },
+
+        updateHasSeen: function(){
+            if (this.model.get('hasSeen')) {
+                this.$el.addClass('seen');
+            } else {
+                this.$el.removeClass('seen');
             }
         },
 
@@ -164,6 +189,48 @@
                 top: 0,
                 opacity: 1
             }, 'fast');
+        },
+
+        updateUsersSeen: function(){
+            var value = this.model.get('usersSeen');
+            if (value === null)
+                return;
+            var new_count = app.utils.formatNumber(value);
+            var counter = this.$el.find('.tag-users');
+            var digit = counter.find('span');
+
+            if (digit.is(':animated'))
+                return false;
+
+            if (counter.data('count') == new_count) {
+                // We are already showing this number
+                return false;
+            }
+
+            counter.data('count', new_count);
+
+            var replacement = $('<span></span>', {
+                css: {
+                    top: '-2.1em',
+                    opacity: 0
+                },
+                text: new_count
+            });
+
+            // The .static class is added when the animation
+            // completes. This makes it run smoother.
+
+            digit.before(replacement).animate({
+                top: '2.5em',
+                opacity: 0
+            }, 'fast', function(){
+                digit.remove();
+            });
+
+            replacement.delay(100).animate({
+                top: 0,
+                opacity: 1
+            }, 'fast');
         }
 
     });
@@ -196,6 +263,8 @@
 
             if (this.options.className)
                 this.$parent.addClass(this.options.className);
+
+            _.bindAll(this, 'renderMemberInContainer', 'unrenderMember', 'reSortMembers');
 
             this.collection = new app.ScoredList([], {
                 model: data.model
@@ -361,7 +430,7 @@
 
             this.cursor = null;
 
-            _.bindAll(this, 'poll', 'tick');
+            _.bindAll(this, 'poll', 'pollSuccess', 'pollFailure', 'tick');
 
             this.poll();
 
@@ -382,6 +451,22 @@
             }
         },
 
+        pollSuccess: function(groups){
+            if (!groups.length)
+                return window.setTimeout(this.poll, this.options.pollTime * 5);
+
+            this.cursor = groups[groups.length - 1].score;
+
+            this.queue.add(groups, {merge: true});
+
+            window.setTimeout(this.poll, this.options.pollTime);
+        },
+
+        pollFailure: function(jqXHR, textStatus, errorThrown){
+            // if an error happened lets give the server a bit of time before we poll again
+            window.setTimeout(this.poll, this.options.pollTime * 10);
+        },
+
         poll: function(){
             var data;
 
@@ -393,23 +478,11 @@
 
             $.ajax({
                 url: this.options.pollUrl,
-                type: 'get',
+                type: 'GET',
                 dataType: 'json',
                 data: data,
-                success: _.bind(function(groups){
-                    if (!groups.length)
-                        return window.setTimeout(this.poll, this.options.pollTime * 5);
-
-                    this.cursor = groups[groups.length - 1].score || undefined;
-
-                    this.queue.add(groups, {merge: true});
-
-                    window.setTimeout(this.poll, this.options.pollTime);
-                }, this),
-                error: _.bind(function(){
-                    // if an error happened lets give the server a bit of time before we poll again
-                    window.setTimeout(this.poll, this.options.pollTime * 10);
-                }, this)
+                success: this.pollSuccess,
+                error: this.pollFailure
             });
         }
 

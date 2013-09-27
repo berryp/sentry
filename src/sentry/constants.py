@@ -2,7 +2,8 @@
 sentry.constants
 ~~~~~~~~~~~~~~~~
 
-These settings act as the default (base) settings for the Sentry-provided web-server
+These settings act as the default (base) settings for the Sentry-provided
+web-server
 
 :copyright: (c) 2010-2013 by the Sentry Team, see AUTHORS for more details.
 :license: BSD, see LICENSE for more details.
@@ -49,21 +50,17 @@ SCORE_CLAUSES = SORT_CLAUSES.copy()
 
 SQLITE_SORT_CLAUSES = SORT_CLAUSES.copy()
 SQLITE_SORT_CLAUSES.update({
-    'date': 'sentry_groupedmessage.last_seen',
-    'new': 'sentry_groupedmessage.first_seen',
+    'date': "(julianday(sentry_groupedmessage.last_seen) - 2440587.5) * 86400.0",
+    'new': "(julianday(sentry_groupedmessage.first_seen) - 2440587.5) * 86400.0",
 })
 SQLITE_SCORE_CLAUSES = SQLITE_SORT_CLAUSES.copy()
 
 MYSQL_SORT_CLAUSES = SORT_CLAUSES.copy()
 MYSQL_SORT_CLAUSES.update({
-    'date': 'sentry_groupedmessage.last_seen',
-    'new': 'sentry_groupedmessage.first_seen',
-})
-MYSQL_SCORE_CLAUSES = SCORE_CLAUSES.copy()
-MYSQL_SCORE_CLAUSES.update({
     'date': 'UNIX_TIMESTAMP(sentry_groupedmessage.last_seen)',
     'new': 'UNIX_TIMESTAMP(sentry_groupedmessage.first_seen)',
 })
+MYSQL_SCORE_CLAUSES = MYSQL_SORT_CLAUSES.copy()
 
 ORACLE_SORT_CLAUSES = SCORE_CLAUSES.copy()
 ORACLE_SORT_CLAUSES.update({
@@ -185,6 +182,11 @@ MAX_EXTRA_VARIABLE_SIZE = 2048
 # keys
 MAX_DICTIONARY_ITEMS = 50
 
+MAX_TAG_KEY_LENGTH = 32
+MAX_TAG_VALUE_LENGTH = 200
+MAX_CULPRIT_LENGTH = 200
+MAX_MESSAGE_LENGTH = 2048
+
 # Team slugs which may not be used. Generally these are top level URL patterns
 # which we don't want to worry about conflicts on.
 RESERVED_TEAM_SLUGS = (
@@ -220,3 +222,6 @@ SEARCH_DEFAULT_SORT_OPTION = 'date'
 # Setup languages for only available locales
 LANGUAGE_MAP = dict(settings.LANGUAGES)
 LANGUAGES = [(k, LANGUAGE_MAP[k]) for k in get_all_languages() if k in LANGUAGE_MAP]
+
+# Timeout (in seconds) for fetching remote source files (e.g. JS)
+SOURCE_FETCH_TIMEOUT = 5

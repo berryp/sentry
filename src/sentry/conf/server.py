@@ -222,11 +222,13 @@ BITBUCKET_CONSUMER_SECRET = ''
 
 SOCIAL_AUTH_PIPELINE = (
     'social_auth.backends.pipeline.social.social_auth_user',
-    'social_auth.backends.pipeline.user.get_username',
+    'social_auth.backends.pipeline.associate.associate_by_email',
+    'social_auth.backends.pipeline.misc.save_status_to_session',
     'sentry.utils.social_auth.create_user_if_enabled',
     'social_auth.backends.pipeline.social.associate_user',
     'social_auth.backends.pipeline.social.load_extra_data',
-    'social_auth.backends.pipeline.user.update_user_details'
+    'social_auth.backends.pipeline.user.update_user_details',
+    'social_auth.backends.pipeline.misc.save_status_to_session',
 )
 
 SOCIAL_AUTH_CREATE_USERS = True
@@ -464,6 +466,16 @@ SENTRY_QUEUE = {
     'transport': 'kombu.transport.django.Transport',
 }
 
+SENTRY_ALLOWED_INTERFACES = set([
+    'sentry.interfaces.Exception',
+    'sentry.interfaces.Message',
+    'sentry.interfaces.Stacktrace',
+    'sentry.interfaces.Template',
+    'sentry.interfaces.Query',
+    'sentry.interfaces.Http',
+    'sentry.interfaces.User',
+])
+
 # Should users without 'sentry.add_project' permissions be allowed
 # to create new projects
 SENTRY_ALLOW_PROJECT_CREATION = False
@@ -502,6 +514,13 @@ SENTRY_REDIS_OPTIONS = {}
 SENTRY_BUFFER = 'sentry.buffer.Buffer'
 SENTRY_BUFFER_OPTIONS = {}
 
+SENTRY_QUOTAS = 'sentry.quotas.Quota'
+SENTRY_QUOTA_OPTIONS = {}
+# The default value for project-level quotas
+SENTRY_DEFAULT_MAX_EVENTS_PER_MINUTE = '90%'
+# The maximum number of events per minute the system should accept.
+SENTRY_SYSTEM_MAX_EVENTS_PER_MINUTE = 0
+
 SENTRY_RAVEN_JS_URL = 'd3nslu0hdya83q.cloudfront.net/dist/1.0/raven.min.js'
 
 # URI Prefixes for generating DSN URLs
@@ -511,7 +530,7 @@ SENTRY_PUBLIC_ENDPOINT = None
 
 # Early draft features. Not slated or public release yet.
 SENTRY_ENABLE_EXPLORE_CODE = False
-SENTRY_ENABLE_EXPLORE_USERS = False
+SENTRY_ENABLE_EXPLORE_USERS = True
 
 # Configure celery
 import djcelery

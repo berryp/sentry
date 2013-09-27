@@ -15,10 +15,13 @@ import logging
 import uuid
 import zlib
 
+from django.conf import settings
 from django.utils.encoding import smart_str
 
 from sentry.app import env
-from sentry.constants import DEFAULT_LOG_LEVEL, LOG_LEVELS
+from sentry.constants import (
+    DEFAULT_LOG_LEVEL, LOG_LEVELS, MAX_MESSAGE_LENGTH, MAX_CULPRIT_LENGTH,
+    MAX_TAG_VALUE_LENGTH, MAX_TAG_KEY_LENGTH)
 from sentry.exceptions import InvalidTimestamp
 from sentry.models import Project, ProjectKey
 from sentry.tasks.store import preprocess_event
@@ -31,9 +34,6 @@ from sentry.utils.strings import decompress, truncatechars
 logger = logging.getLogger('sentry.coreapi.errors')
 
 LOG_LEVEL_REVERSE_MAP = dict((v, k) for k, v in LOG_LEVELS.iteritems())
-
-MAX_CULPRIT_LENGTH = 200
-MAX_MESSAGE_LENGTH = 2048
 
 INTERFACE_ALIASES = {
     'exception': 'sentry.interfaces.Exception',
@@ -85,6 +85,23 @@ class APIForbidden(APIError):
 
 class APITimestampExpired(APIError):
     http_status = 410
+
+
+class APIRateLimited(APIError):
+    http_status = 429
+    msg = 'Creation of this event was denied due to rate limiting.'
+
+
+def get_interface(name):
+    if name not in settings.SENTRY_ALLOWED_INTERFACES:
+        raise ValueError
+
+    try:
+        interface = import_string(name)
+    except Exception:
+        raise ValueError('Unable to load interface: %s' % (name,))
+
+    return interface
 
 
 def client_metadata(client=None, project=None, exception=None, tags=None, extra=None):
@@ -290,7 +307,7 @@ def validate_data(project, data, client=None):
                     logger.info('Discarded invalid tag value: %s=%r',
                                 k, type(v), **client_metadata(client, project))
                     continue
-            if len(k) > 32 or len(v) > 32:
+            if len(k) > MAX_TAG_KEY_LENGTH or len(v) > MAX_TAG_VALUE_LENGTH:
                 logger.info('Discarded invalid tag: %s=%s',
                             k, v, **client_metadata(client, project))
                 continue
@@ -318,11 +335,11 @@ def validate_data(project, data, client=None):
             continue
 
         try:
-            interface = import_string(import_path)
-        except (ImportError, AttributeError) as e:
+            interface = get_interface(import_path)
+        except ValueError:
             logger.info(
                 'Invalid unknown attribute: %s', k,
-                **client_metadata(client, project, exception=e))
+                **client_metadata(client, project))
             del data[k]
             continue
 
@@ -357,6 +374,16 @@ def validate_data(project, data, client=None):
                 DEFAULT_LOG_LEVEL, DEFAULT_LOG_LEVEL)
 
     return data
+
+
+def ensure_has_ip(data, ip_address):
+    if data.get('sentry.interfaces.Http', {}).get('env', {}).get('REMOTE_ADDR'):
+        return
+
+    if data.get('sentry.interfaces.User', {}).get('ip_address'):
+        return
+
+    data.setdefault('sentry.interfaces.User', {})['ip_address'] = ip_address
 
 
 def insert_data_to_database(data):

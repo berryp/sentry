@@ -16,6 +16,10 @@ import warnings
 KEY_LENGTH = 40
 
 CONFIG_TEMPLATE = """
+# This file is just Python, with a touch of Django which means you
+# you can inherit and tweak settings to your hearts content.
+from sentry.conf.server import *
+
 import os.path
 
 CONF_ROOT = os.path.dirname(__file__)
@@ -66,7 +70,8 @@ DATABASES = {
 ###########
 
 # See http://sentry.readthedocs.org/en/latest/queue/index.html for more
-# information on configuring your queue broker and workers.
+# information on configuring your queue broker and workers. Sentry relies
+# on a Python framework called Celery to manage queues.
 
 # You can enable queueing of jobs by turning off the always eager setting:
 # CELERY_ALWAYS_EAGER = False
@@ -79,6 +84,7 @@ DATABASES = {
 # Buffers (combined with queueing) act as an intermediate layer between the
 # database and the storage API. They will greatly improve efficiency on large
 # numbers of the same events being sent to the API in a short amount of time.
+# (read: if you send any kind of real data to Sentry, you should enable buffers)
 
 # You'll need to install the required dependencies for Redis buffers:
 #   pip install redis hiredis nydus
@@ -126,10 +132,15 @@ EMAIL_HOST_USER = ''
 EMAIL_PORT = 25
 EMAIL_USE_TLS = False
 
+# The email address to send on behalf of
+SERVER_EMAIL = 'root@localhost'
+
 ###########
 ## etc. ##
 ###########
 
+# If this file ever becomes compromised, it's important to regenerate your SECRET_KEY
+# Changing this value will result in all current sessions being invalidated
 SECRET_KEY = %(default_key)r
 
 # http://twitter.com/apps/new
@@ -237,15 +248,15 @@ def apply_legacy_settings(config):
         if urlbits.hostname:
             settings.ALLOWED_HOSTS = (urlbits.hostname,)
 
-
-def table_exists(name):
-    from django.db import connections
-    return name in connections['default'].introspection.table_names()
+    if not settings.SERVER_EMAIL and hasattr(settings, 'SENTRY_SERVER_EMAIL'):
+        warnings.warn('SENTRY_SERVER_URL is deprecated. Please use SERVER_URL instead.')
+        settings.SERVER_EMAIL = settings.SENTRY_SERVER_EMAIL
 
 
 def skip_migration_if_applied(settings, app_name, table_name,
                               name='0001_initial'):
     from south.migration import Migrations
+    from sentry.utils.db import table_exists
     import types
 
     migration = Migrations(app_name)[name]

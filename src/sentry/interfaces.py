@@ -17,8 +17,10 @@ from pygments import highlight
 # from pygments.lexers import get_lexer_for_filename, TextLexer, ClassNotFound
 from pygments.lexers import TextLexer
 from pygments.formatters import HtmlFormatter
+from urllib import urlencode
 
 from django.http import QueryDict
+from django.utils.html import escape
 from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext as _
 
@@ -153,6 +155,12 @@ class Interface(object):
 
     def to_string(self, event, is_public=False, **kwargs):
         return ''
+
+    def to_email_html(self, event, **kwargs):
+        body = self.to_string(event)
+        if not body:
+            return ''
+        return '<pre>%s</pre>' % (escape(body).replace('\n', '<br>'),)
 
     def get_slug(self):
         return type(self).__name__.lower()
@@ -289,6 +297,10 @@ class Frame(object):
         self.context_line = context_line
         self.pre_context = pre_context
         self.post_context = post_context
+        if isinstance(vars, (list, tuple)):
+            vars = dict(enumerate(vars))
+        if isinstance(data, (list, tuple)):
+            data = dict(enumerate(data))
         self.vars = vars or {}
         self.data = data or {}
 
@@ -353,6 +365,7 @@ class Frame(object):
             'function': self.function,
             'start_lineno': start_lineno,
             'lineno': self.lineno,
+            'colno': self.colno,
             'context': context,
             'context_line': self.context_line,
             'in_app': self.in_app,
@@ -365,10 +378,11 @@ class Frame(object):
             frame_data.update({
                 'sourcemap': self.data['sourcemap'].rsplit('/', 1)[-1],
                 'sourcemap_url': urlparse.urljoin(self.abs_path, self.data['sourcemap']),
-                'orig_function': self.data['orig_function'],
-                'orig_filename': self.data['orig_filename'],
-                'orig_lineno': self.data['orig_lineno'],
-                'orig_colno': self.data['orig_colno'],
+                'orig_function': self.data.get('orig_function', '?'),
+                'orig_abs_path': self.data.get('orig_abs_path', '?'),
+                'orig_filename': self.data.get('orig_filename', '?'),
+                'orig_lineno': self.data.get('orig_lineno', '?'),
+                'orig_colno': self.data.get('orig_colno', '?'),
             })
         return frame_data
 
@@ -908,9 +922,15 @@ class Http(Interface):
             # remove '?' prefix
             query_string = query_string[1:]
 
+        if isinstance(data, (list, tuple)):
+            data = dict(enumerate(data))
+
         self.url = '%s://%s%s' % (urlparts.scheme, urlparts.netloc, urlparts.path)
         self.method = method
         self.data = data
+        # if querystring was a dict, convert it to a string
+        if isinstance(query_string, dict):
+            query_string = urlencode(query_string.items())
         self.query_string = query_string
         if cookies:
             self.cookies = cookies
@@ -943,8 +963,8 @@ class Http(Interface):
             'env': self.env,
         }
 
-    def to_string(self, event, is_public=False, **kwargs):
-        return render_to_string('sentry/partial/interfaces/http.txt', {
+    def to_email_html(self, event, **kwargs):
+        return render_to_string('sentry/partial/interfaces/http_email.html', {
             'event': event,
             'full_url': '?'.join(filter(bool, [self.url, self.query_string])),
             'url': self.url,
@@ -1111,21 +1131,25 @@ class User(Interface):
     """
     An interface which describes the authenticated User for a request.
 
-    All data is arbitrary and optional other than the ``id``
-    field which should be a string representing the user's unique identifier.
+    You should provide **at least** either an `id` (a unique identifier for
+    an authenticated user) or `ip_address` (their IP address).
+
+    All other data is.
 
     >>> {
     >>>     "id": "unique_id",
     >>>     "username": "my_user",
     >>>     "email": "foo@example.com"
+    >>>     "ip_address": "127.0.0.1"
     >>> }
     """
     attrs = ('id', 'email', 'username', 'data')
 
-    def __init__(self, id=None, email=None, username=None, **kwargs):
+    def __init__(self, id=None, email=None, username=None, ip_address=None, **kwargs):
         self.id = id
         self.email = email
         self.username = username
+        self.ip_address = ip_address
         self.data = kwargs
 
     def serialize(self):
@@ -1137,6 +1161,7 @@ class User(Interface):
             'id': self.id,
             'username': self.username,
             'email': self.email,
+            'ip_address': getattr(self, 'ip_address', None),
             'data': self.data,
         }
 
@@ -1149,6 +1174,7 @@ class User(Interface):
         return render_to_string('sentry/partial/interfaces/user.html', {
             'is_public': is_public,
             'event': event,
+            'user_ip_address': self.ip_address,
             'user_id': self.id,
             'user_username': self.username,
             'user_email': self.email,

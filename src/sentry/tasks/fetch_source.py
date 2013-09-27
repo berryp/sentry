@@ -9,19 +9,24 @@ sentry.tasks.fetch_source
 import itertools
 import logging
 import hashlib
+import re
 import urllib2
 import zlib
 from collections import namedtuple
 from urlparse import urljoin
 
 from django.utils.simplejson import JSONDecodeError
+
+from sentry.constants import SOURCE_FETCH_TIMEOUT
 from sentry.utils.cache import cache
 from sentry.utils.sourcemaps import sourcemap_to_index, find_source
 
-BAD_SOURCE = -1
 
+BAD_SOURCE = -1
 # number of surrounding lines (on each side) to fetch
 LINES_OF_CONTEXT = 5
+CHARSET_RE = re.compile(r'charset=(\S+)')
+DEFAULT_ENCODING = 'utf-8'
 
 UrlResult = namedtuple('UrlResult', ['url', 'headers', 'body'])
 
@@ -102,8 +107,11 @@ def fetch_url_content(url):
 
     try:
         opener = urllib2.build_opener()
-        opener.addheaders = [('User-Agent', 'Sentry/%s' % sentry.VERSION)]
-        req = opener.open(url)
+        opener.addheaders = [
+            ('Accept-Encoding', 'gzip'),
+            ('User-Agent', 'Sentry/%s' % sentry.VERSION),
+        ]
+        req = opener.open(url, timeout=SOURCE_FETCH_TIMEOUT)
         headers = dict(req.headers)
         body = req.read()
         if headers.get('content-encoding') == 'gzip':
@@ -111,8 +119,21 @@ def fetch_url_content(url):
             # and may send gzipped data regardless.
             # See: http://stackoverflow.com/questions/2423866/python-decompressing-gzip-chunk-by-chunk/2424549#2424549
             body = zlib.decompress(body, 16 + zlib.MAX_WBITS)
-        body = body.rstrip('\n')
+
+        try:
+            content_type = headers['content-type']
+        except KeyError:
+            # If there is no content_type header at all, quickly assume default utf-8 encoding
+            encoding = DEFAULT_ENCODING
+        else:
+            try:
+                encoding = CHARSET_RE.search(content_type).group(1)
+            except AttributeError:
+                encoding = DEFAULT_ENCODING
+
+        body = body.decode(encoding).rstrip('\n')
     except Exception:
+        logging.info('Failed fetching %r', url, exc_info=True)
         return BAD_SOURCE
 
     return (url, headers, body)
@@ -177,6 +198,7 @@ def expand_javascript_source(data, **kwargs):
         stacktraces = [
             Stacktrace(**e['stacktrace'])
             for e in data['sentry.interfaces.Exception']['values']
+            if e.get('stacktrace')
         ]
     except KeyError:
         stacktraces = []
@@ -267,6 +289,9 @@ def expand_javascript_source(data, **kwargs):
             try:
                 source, _ = source_code[abs_path]
             except KeyError:
+                frame.data = {
+                    'sourcemap': sourcemap,
+                }
                 logger.debug('Failed mapping path %r', abs_path)
             else:
                 # Store original data in annotation

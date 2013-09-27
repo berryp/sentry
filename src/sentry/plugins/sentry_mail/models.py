@@ -11,6 +11,7 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.core.urlresolvers import reverse
 from django.template.loader import render_to_string
+from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext_lazy as _
 from sentry.models import User, UserOption
 from sentry.plugins import register
@@ -43,7 +44,6 @@ class MailPlugin(NotificationPlugin):
     author_url = "https://github.com/getsentry/sentry"
     project_default_enabled = True
     project_conf_form = None
-    can_disable = False
     subject_prefix = settings.EMAIL_SUBJECT_PREFIX
 
     def _send_mail(self, subject, body, html_body=None, project=None, fail_silently=False, headers=None):
@@ -179,10 +179,10 @@ class MailPlugin(NotificationPlugin):
 
         interface_list = []
         for interface in event.interfaces.itervalues():
-            body = interface.to_string(event)
+            body = interface.to_email_html(event)
             if not body:
                 continue
-            interface_list.append((interface.get_title(), body))
+            interface_list.append((interface.get_title(), mark_safe(body)))
 
         subject = '[%s] %s: %s' % (
             project.name.encode('utf-8'),

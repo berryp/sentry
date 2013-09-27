@@ -10,20 +10,21 @@ JS_REPORTER = dot
 
 develop: update-submodules
 	npm install -q
+	# order matters here, base package must install first
+	pip install -q -e . --use-mirrors
 	pip install -q "file://`pwd`#egg=sentry[dev]" --use-mirrors
 	pip install -q "file://`pwd`#egg=sentry[tests]" --use-mirrors
-	pip install -q -e . --use-mirrors
 	make setup-git
 
 dev-postgres:
+	pip install -q -e . --use-mirrors
 	pip install -q "file://`pwd`#egg=sentry[dev]" --use-mirrors
 	pip install -q "file://`pwd`#egg=sentry[postgres]" --use-mirrors
-	pip install -q -e . --use-mirrors
 
 dev-mysql:
+	pip install -q -e . --use-mirrors
 	pip install -q "file://`pwd`#egg=sentry[dev]" --use-mirrors
 	pip install -q "file://`pwd`#egg=sentry[mysql]" --use-mirrors
-	pip install -q -e . --use-mirrors
 
 dev-docs:
 	pip install -q -r docs/requirements.txt --use-mirrors
@@ -50,17 +51,13 @@ compile-bootstrap-js:
 	@cat src/bootstrap/js/bootstrap-transition.js src/bootstrap/js/bootstrap-alert.js src/bootstrap/js/bootstrap-button.js src/bootstrap/js/bootstrap-carousel.js src/bootstrap/js/bootstrap-collapse.js src/bootstrap/js/bootstrap-dropdown.js src/bootstrap/js/bootstrap-modal.js src/bootstrap/js/bootstrap-tooltip.js src/bootstrap/js/bootstrap-popover.js src/bootstrap/js/bootstrap-scrollspy.js src/bootstrap/js/bootstrap-tab.js src/bootstrap/js/bootstrap-typeahead.js src/bootstrap/js/bootstrap-affix.js ${STATIC_DIR}/scripts/bootstrap-datepicker.js > ${BOOTSTRAP_JS}
 	${UGLIFY_JS} -nc ${BOOTSTRAP_JS} > ${BOOTSTRAP_JS_MIN};
 
-install-test-requirements:
-	npm install -q
-	pip install -q "file://`pwd`#egg=sentry[tests]"
-
 update-submodules:
 	git submodule init
 	git submodule update
 
-test: install-test-requirements lint test-js test-python test-cli
+test: develop lint test-js test-python test-cli
 
-testloop: install-test-requirements
+testloop: develop
 	pip install pytest-xdist --use-mirrors
 	py.test tests -f
 
@@ -95,7 +92,7 @@ lint-js:
 	@${NPM_ROOT}/.bin/jshint src/sentry/ || exit 1
 	@echo ""
 
-coverage: install-test-requirements
+coverage: develop
 	py.test --cov=src/sentry --cov-report=html
 
 run-uwsgi:

@@ -29,9 +29,11 @@ from sentry.constants import (
     ORACLE_SORT_CLAUSES, ORACLE_SCORE_CLAUSES,
     MSSQL_SORT_CLAUSES, MSSQL_SCORE_CLAUSES, DEFAULT_SORT_OPTION,
     SEARCH_DEFAULT_SORT_OPTION, MAX_JSON_RESULTS)
+from sentry.db.models import create_or_update
 from sentry.filters import get_filters
 from sentry.models import (
-    Project, Group, Event, SearchDocument, Activity, EventMapping, TagKey)
+    Project, Group, Event, SearchDocument, Activity, EventMapping, TagKey,
+    GroupSeen)
 from sentry.permissions import can_admin_group, can_create_projects
 from sentry.plugins import plugins
 from sentry.utils import json
@@ -137,7 +139,8 @@ def _get_group_list(request, project):
     elif sort == 'avgtime':
         event_list = event_list.filter(time_spent_count__gt=0)
     elif sort.startswith('accel_'):
-        event_list = Group.objects.get_accelerated([project.id], event_list, minutes=int(sort.split('_', 1)[1]))
+        event_list = Group.objects.get_accelerated(
+            [project.id], event_list, minutes=int(sort.split('_', 1)[1]))
 
     if score_clause:
         event_list = event_list.extra(
@@ -148,7 +151,7 @@ def _get_group_list(request, project):
             event_list = event_list.order_by('-last_seen')
         else:
             event_list = event_list.order_by('-sort_value', '-last_seen')
-        cursor = request.GET.get('cursor')
+        cursor = request.GET.get('cursor', request.GET.get('c'))
         if cursor:
             event_list = event_list.extra(
                 where=['%s > %%s' % filter_clause],
@@ -166,7 +169,8 @@ def _get_group_list(request, project):
     }
 
 
-def render_with_group_context(group, template, context, request=None, event=None, is_public=False):
+def render_with_group_context(group, template, context, request=None,
+                              event=None, is_public=False):
     context.update({
         'team': group.project.team,
         'project': group.project,
@@ -388,7 +392,20 @@ def group(request, team, project, group, event_id=None):
     event.group = group
     event.project = project
 
-    # filter out dupes
+    if project in Project.objects.get_for_user(
+            request.user, team=team, superuser=False):
+        # update that the user has seen this group
+        create_or_update(
+            GroupSeen,
+            group=group,
+            user=request.user,
+            project=project,
+            defaults={
+                'last_seen': timezone.now(),
+            }
+        )
+
+    # filter out dupe activity items
     activity_items = set()
     activity = []
     for item in activity_qs.filter(group=group)[:10]:
@@ -400,9 +417,23 @@ def group(request, team, project, group, event_id=None):
     # trim to latest 5
     activity = activity[:5]
 
+    seen_by = sorted(filter(lambda ls: ls[0] != request.user and ls[0].email, [
+        (gs.user, gs.last_seen)
+        for gs in GroupSeen.objects.filter(
+            group=group
+        ).select_related('user')
+    ]), key=lambda ls: ls[1], reverse=True)
+    seen_by_extra = len(seen_by) - 5
+    if seen_by_extra < 0:
+        seen_by_extra = 0
+    seen_by_faces = seen_by[:5]
+
     context = {
         'page': 'details',
         'activity': activity,
+        'seen_by': seen_by,
+        'seen_by_faces': seen_by_faces,
+        'seen_by_extra': seen_by_extra,
     }
 
     is_public = group_is_public(group, request.user)

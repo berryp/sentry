@@ -7,7 +7,7 @@ sentry.utils.samples
 """
 import os.path
 
-from sentry.constants import DATA_ROOT, PLATFORM_ROOTS
+from sentry.constants import DATA_ROOT, PLATFORM_ROOTS, PLATFORM_TITLES
 from sentry.models import Group
 from sentry.utils import json
 
@@ -30,6 +30,24 @@ def create_sample_event(project, platform=None):
         data = json.loads(fp.read())
 
     data['platform'] = platform
-
+    data['message'] = 'This is an example %s exception' % (
+        PLATFORM_TITLES.get(platform, platform.title()),)
+    data['sentry.interfaces.User'] = {
+        "username": "getsentry",
+        "id": "1671",
+        "email": "foo@example.com"
+    }
+    data['sentry.interfaces.Http'] = {
+        "cookies": {},
+        "url": "http://example.com/foo",
+        "headers": {
+            "Referer": "http://example.com",
+            "User-Agent": "Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/28.0.1500.72 Safari/537.36"
+        },
+        "env": {},
+        "query_string": "",
+        "data": {},
+        "method": "GET"
+    }
     data = Group.objects.normalize_event_data(data)
     return Group.objects.save_data(project.id, data, raw=True)

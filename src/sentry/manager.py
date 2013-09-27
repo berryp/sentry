@@ -14,19 +14,16 @@ import hashlib
 import itertools
 import logging
 import re
-import threading
 import time
 import warnings
-import weakref
 import uuid
 
 from celery.signals import task_postrun
 from django.conf import settings
 from django.contrib.auth.models import UserManager
 from django.core.signals import request_finished
-from django.db import models, router, transaction, IntegrityError
+from django.db import models, transaction, IntegrityError
 from django.db.models import Sum
-from django.db.models.signals import post_save, post_delete, post_init, class_prepared
 from django.utils import timezone
 from django.utils.datastructures import SortedDict
 from django.utils.encoding import force_unicode
@@ -35,14 +32,15 @@ from raven.utils.encoding import to_string
 from sentry import app
 from sentry.constants import (
     STATUS_RESOLVED, STATUS_UNRESOLVED, MINUTE_NORMALIZATION,
-    MAX_EXTRA_VARIABLE_SIZE, LOG_LEVELS, DEFAULT_LOGGER_NAME)
+    MAX_EXTRA_VARIABLE_SIZE, LOG_LEVELS, DEFAULT_LOGGER_NAME,
+    MAX_CULPRIT_LENGTH)
+from sentry.db.models import BaseManager
 from sentry.processors.base import send_group_processors
 from sentry.signals import regression_signal
 from sentry.tasks.index import index_event
 from sentry.utils.cache import cache, memoize
 from sentry.utils.dates import get_sql_date_trunc, normalize_datetime
 from sentry.utils.db import get_db_engine, has_charts, attach_foreignkey
-from sentry.utils.models import create_or_update, make_key
 from sentry.utils.safe import safe_execute, trim, trim_dict
 from sentry.utils.strings import strip
 
@@ -62,168 +60,6 @@ def get_checksum_from_event(event):
                 hash.update(to_string(r))
             return hash.hexdigest()
     return hashlib.md5(to_string(event.message)).hexdigest()
-
-
-class BaseManager(models.Manager):
-    lookup_handlers = {
-        'iexact': lambda x: x.upper(),
-    }
-    use_for_related_fields = True
-
-    def __init__(self, *args, **kwargs):
-        self.cache_fields = kwargs.pop('cache_fields', [])
-        self.cache_ttl = kwargs.pop('cache_ttl', 60 * 5)
-        self.__local_cache = threading.local()
-        super(BaseManager, self).__init__(*args, **kwargs)
-
-    def _get_cache(self):
-        if not hasattr(self.__local_cache, 'value'):
-            self.__local_cache.value = weakref.WeakKeyDictionary()
-        return self.__local_cache.value
-
-    def _set_cache(self, value):
-        self.__local_cache.value = value
-
-    __cache = property(_get_cache, _set_cache)
-
-    def __getstate__(self):
-        d = self.__dict__.copy()
-        # we cant serialize weakrefs
-        d.pop('_BaseManager__cache', None)
-        d.pop('_BaseManager__local_cache', None)
-        return d
-
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-        self.__local_cache = weakref.WeakKeyDictionary()
-
-    def __class_prepared(self, sender, **kwargs):
-        """
-        Given the cache is configured, connects the required signals for invalidation.
-        """
-        if not self.cache_fields:
-            return
-        post_init.connect(self.__post_init, sender=sender, weak=False)
-        post_save.connect(self.__post_save, sender=sender, weak=False)
-        post_delete.connect(self.__post_delete, sender=sender, weak=False)
-
-    def __cache_state(self, instance):
-        """
-        Updates the tracked state of an instance.
-        """
-        if instance.pk:
-            self.__cache[instance] = dict((f, getattr(instance, f)) for f in self.cache_fields)
-        else:
-            self.__cache[instance] = UNSAVED
-
-    def __post_init(self, instance, **kwargs):
-        """
-        Stores the initial state of an instance.
-        """
-        self.__cache_state(instance)
-
-    def __post_save(self, instance, **kwargs):
-        """
-        Pushes changes to an instance into the cache, and removes invalid (changed)
-        lookup values.
-        """
-        pk_name = instance._meta.pk.name
-        pk_names = ('pk', pk_name)
-        pk_val = instance.pk
-        for key in self.cache_fields:
-            if key in pk_names:
-                continue
-            # store pointers
-            cache.set(self.__get_lookup_cache_key(**{key: getattr(instance, key)}), pk_val, self.cache_ttl)  # 1 hour
-
-        # Ensure we don't serialize the database into the cache
-        db = instance._state.db
-        instance._state.db = None
-        # store actual object
-        try:
-            cache.set(self.__get_lookup_cache_key(**{pk_name: pk_val}), instance, self.cache_ttl)
-        except Exception as e:
-            logger.error(e, exc_info=True)
-        instance._state.db = db
-
-        # Kill off any keys which are no longer valid
-        if instance in self.__cache:
-            for key in self.cache_fields:
-                if key not in self.__cache[instance]:
-                    continue
-                value = self.__cache[instance][key]
-                if value != getattr(instance, key):
-                    cache.delete(self.__get_lookup_cache_key(**{key: value}))
-
-        self.__cache_state(instance)
-
-    def __post_delete(self, instance, **kwargs):
-        """
-        Drops instance from all cache storages.
-        """
-        pk_name = instance._meta.pk.name
-        for key in self.cache_fields:
-            if key in ('pk', pk_name):
-                continue
-            # remove pointers
-            cache.delete(self.__get_lookup_cache_key(**{key: getattr(instance, key)}))
-        # remove actual object
-        cache.delete(self.__get_lookup_cache_key(**{pk_name: instance.pk}))
-
-    def __get_lookup_cache_key(self, **kwargs):
-        return make_key(self.model, 'modelcache', kwargs)
-
-    def contribute_to_class(self, model, name):
-        super(BaseManager, self).contribute_to_class(model, name)
-        class_prepared.connect(self.__class_prepared, sender=model)
-
-    def get_from_cache(self, **kwargs):
-        """
-        Wrapper around QuerySet.get which supports caching of the
-        intermediate value.  Callee is responsible for making sure
-        the cache key is cleared on save.
-        """
-        if not self.cache_fields or len(kwargs) > 1:
-            return self.get(**kwargs)
-
-        key, value = kwargs.items()[0]
-        pk_name = self.model._meta.pk.name
-        if key == 'pk':
-            key = pk_name
-
-        # Kill __exact since it's the default behavior
-        if key.endswith('__exact'):
-            key = key.split('__exact', 1)[0]
-
-        if key in self.cache_fields or key == pk_name:
-            cache_key = self.__get_lookup_cache_key(**{key: value})
-
-            retval = cache.get(cache_key)
-            if retval is None:
-                result = self.get(**kwargs)
-                # Ensure we're pushing it into the cache
-                self.__post_save(instance=result)
-                return result
-
-            # If we didn't look up by pk we need to hit the reffed
-            # key
-            if key != pk_name:
-                return self.get_from_cache(**{pk_name: retval})
-
-            if type(retval) != self.model:
-                if settings.DEBUG:
-                    raise ValueError('Unexpected value type returned from cache')
-                logger.error('Cache response returned invalid value %r', retval)
-                return self.get(**kwargs)
-
-            retval._state.db = router.db_for_read(self.model, **kwargs)
-
-            return retval
-        else:
-            return self.get(**kwargs)
-
-    def create_or_update(self, **kwargs):
-        return create_or_update(self.model, **kwargs)
 
 
 class ScoreClause(object):
@@ -377,6 +213,7 @@ class GroupManager(BaseManager, ChartMixin):
     use_for_related_fields = True
 
     def normalize_event_data(self, data):
+        # TODO(dcramer): store http.env.REMOTE_ADDR as user.ip
         # First we pull out our top-level (non-data attr) kwargs
         if not data.get('level') or data['level'] not in LOG_LEVELS:
             data['level'] = logging.ERROR
@@ -479,7 +316,7 @@ class GroupManager(BaseManager, ChartMixin):
 
             # default the culprit to the url
             if not data['culprit']:
-                data['culprit'] = strip(http_data.get('url'))
+                data['culprit'] = trim(strip(http_data.get('url')), MAX_CULPRIT_LENGTH)
 
         return data
 
@@ -867,7 +704,8 @@ class RawQuerySet(object):
 
 
 class ProjectManager(BaseManager, ChartMixin):
-    def get_for_user(self, user=None, access=None, hidden=False, team=None):
+    def get_for_user(self, user=None, access=None, hidden=False, team=None,
+                     superuser=True):
         """
         Returns a SortedDict of all projects a user has some level of access to.
         """
@@ -885,7 +723,7 @@ class ProjectManager(BaseManager, ChartMixin):
         if team:
             base_qs = base_qs.filter(team=team)
 
-        if team and user.is_superuser:
+        if team and user.is_superuser and superuser:
             projects = set(base_qs)
         else:
             projects_qs = base_qs
@@ -907,7 +745,7 @@ class ProjectManager(BaseManager, ChartMixin):
 
         attach_foreignkey(projects, self.model.team)
 
-        return sorted(projects, key=lambda x: x.name)
+        return sorted(projects, key=lambda x: x.name.lower())
 
 
 class MetaManager(BaseManager):
@@ -1270,7 +1108,7 @@ class TeamManager(BaseManager):
             return results
 
         if settings.SENTRY_PUBLIC and access is None:
-            for team in self.order_by('name').iterator():
+            for team in sorted(self.iterator(), key=lambda x: x.name.lower()):
                 results[team.slug] = team
         else:
             all_teams = set()
@@ -1294,15 +1132,15 @@ class TeamManager(BaseManager):
                 for group in qs:
                     all_teams.add(group.team)
 
-            for team in sorted(all_teams, key=lambda x: x.name):
+            for team in sorted(all_teams, key=lambda x: x.name.lower()):
                 results[team.slug] = team
 
         if with_projects:
             # these kinds of queries make people sad :(
             new_results = SortedDict()
             for team in results.itervalues():
-                project_list = Project.objects.get_for_user(
-                    user, team=team)[:20]
+                project_list = list(Project.objects.get_for_user(
+                    user, team=team))
                 new_results[team.slug] = (team, project_list)
             results = new_results
 

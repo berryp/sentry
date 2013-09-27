@@ -62,33 +62,34 @@ tests_require = [
 
 
 install_requires = [
-    'cssutils>=0.9.9,<0.9.10',
+    'cssutils>0.9.9,<0.9.11',
     'BeautifulSoup>=3.2.1,<3.3.0',
     'django-celery>=3.0.11,<3.1.0',
     'celery>=3.0.15,<3.1.0',
     'django-crispy-forms>=1.2.3,<1.3.0',
-    'Django>=1.5.1,<1.6',
+    'Django>=1.5.4,<1.6',
     'django-paging>=0.2.5,<0.3.0',
     'django-picklefield>=0.3.0,<0.4.0',
     'django-static-compiler>=0.3.0,<0.4.0',
     'django-templatetag-sugar>=0.1.0,<0.2.0',
     'gunicorn>=0.17.2,<0.18.0',
-    'logan>=0.5.6,<0.6.0',
+    'logan>=0.5.8.2,<0.6.0',
     'nydus>=0.10.0,<0.11.0',
     'Pygments>=1.6.0,<1.7.0',
-    'pynliner>=0.4.0,<0.5.0',
+    'pynliner>=0.4.0,<0.6.0',
     'python-dateutil>=1.5.0,<2.0.0',
+    'python-memcached>=1.53,<2.0.0',
     'raven>=3.3.8',
-    'redis>2.7.0,<2.8.0',
-    'simplejson>=3.1.0,<3.2.0',
-    'South>=0.7.6,<0.8.0',
+    'redis>=2.7.0,<2.9.0',
+    'simplejson>=3.1.0,<3.4.0',
+    'South>=0.8.0,<0.9.0',
     'httpagentparser>=1.2.1,<1.3.0',
-    'django-social-auth>=0.7.24,<0.8.0',
+    'django-social-auth>=0.7.28,<0.8.0',
     'setproctitle>=1.1.7,<1.2.0',
 ]
 
 postgres_requires = [
-    'psycopg2>=2.4.0,<2.5.0',
+    'psycopg2>=2.5.0,<2.6.0',
 ]
 
 postgres_pypy_requires = [
@@ -115,7 +116,7 @@ class PyTest(TestCommand):
 
 setup(
     name='sentry',
-    version='6.0.1.login_patch',
+    version='6.2.3.login_patch',
     author='David Cramer, Berry Phillips',
     author_email='dcramer@gmail.com, berryphillips@gmail.com',
     url='http://www.getsentry.com',

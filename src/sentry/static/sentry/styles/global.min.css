@@ -5715,7 +5715,7 @@ a.badge:focus {
 
   zoom: 1;
   *display: inline;
-  vertical-align: top;
+  vertical-align: middle;
 }
 .select2-container .select2-choice {
   -webkit-border-radius: 3px;
@@ -5733,8 +5733,8 @@ a.badge:focus {
   overflow: hidden;
   white-space: nowrap;
   position: relative;
-  height: 35px;
-  line-height: 35px;
+  height: 32px;
+  line-height: 32px;
   padding: 0 0 0 14px;
   color: #757f87;
   text-decoration: none;
@@ -6994,6 +6994,9 @@ h3 {
   padding: 25px 30px 10px;
   min-width: 786px;
 }
+#content section.body a {
+  word-break: break-all;
+}
 #content section.body .select2-drop {
   -webkit-box-shadow: 0 0 0 2px #c3c8ce;
   -moz-box-shadow: 0 0 0 2px #c3c8ce;
@@ -7330,7 +7333,7 @@ a.icon-share:hover {
 .progressbar {
   position: relative;
   border: 1px solid #c7def5;
-  height: 1.5em;
+  min-height: 1.5em;
   line-height: 1.5em;
 }
 .progressbar > a,
@@ -7344,6 +7347,10 @@ a.icon-share:hover {
 }
 .progressbar > a {
   left: 5px;
+  position: relative;
+  z-index: 1;
+  padding-right: 60px;
+  display: block;
 }
 .progressbar > a span {
   position: absolute;
@@ -7352,6 +7359,7 @@ a.icon-share:hover {
 .progressbar > div {
   background-color: #f2f8fd;
   text-indent: -100000em;
+  z-index: 0;
 }
 .sparkline {
   position: relative;
@@ -7440,9 +7448,13 @@ a.icon-share:hover {
 .events > li.with-sparkline .meta {
   right: 155px;
 }
-.group-list > li.unseen h3,
-.events > li.unseen h3 {
-  font-weight: bold;
+.group-list > li.seen h3,
+.events > li.seen h3 {
+  font-weight: normal;
+}
+.group-list > li.seen h3 a,
+.events > li.seen h3 a {
+  color: #898f98;
 }
 .group-list > li h3,
 .events > li h3 {
@@ -7500,7 +7512,7 @@ a.icon-share:hover {
 }
 .group-list > li .message,
 .events > li .message {
-  color: #777;
+  color: #898f98;
   margin-bottom: 0;
   font-size: 14px;
   padding-right: 24px;
@@ -7529,6 +7541,41 @@ a.icon-share:hover {
 .group-list > li .tag,
 .events > li .tag {
   margin-left: 10px;
+}
+.group-list > li .tag-users,
+.events > li .tag-users {
+  margin-right: 10px;
+  margin-left: 0;
+  position: relative;
+  background: #f9f9f9;
+  padding: 0 5px 0 45px;
+  line-height: 20px;
+  height: 20px;
+  min-width: 20px;
+  text-align: right;
+  float: left;
+  display: block;
+  color: #666;
+  overflow: hidden;
+}
+.group-list > li .tag-users span,
+.events > li .tag-users span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 45px;
+  right: 5px;
+  height: 100%;
+  text-align: center;
+  line-height: inherit;
+  display: block;
+}
+.group-list > li .tag-users i,
+.events > li .tag-users i {
+  font-style: normal;
+  position: absolute;
+  left: 5px;
+  color: #aaa;
 }
 .group-list > li .tag-project,
 .events > li .tag-project {
@@ -7837,10 +7884,10 @@ ul.traceback {
   font-size: 0.9em;
   margin-left: 10px;
 }
-.frame table.vars {
+.frame > div > table.vars {
   margin-bottom: 5px;
 }
-.frame table.vars th {
+.frame > div > table.vars > tbody > tr > th {
   color: #465262;
   text-align: right;
 }
@@ -7939,7 +7986,6 @@ ol.context-line > li > span {
 }
 .mini-tag-list > li {
   display: inline-block;
-  min-width: 100px;
   background: #f9f9f9;
   -webkit-border-radius: 8px;
   -moz-border-radius: 8px;
@@ -8704,6 +8750,33 @@ table.vars table.vars th {
 .activity > li .time {
   font-size: 12px;
   color: #aaa;
+}
+.seen-by {
+  position: relative;
+  margin-left: 0;
+}
+.seen-by > li {
+  list-style: none;
+  display: inline-block;
+  height: 32px;
+  width: 32px;
+  line-height: 32px;
+  text-align: center;
+  -webkit-border-radius: 32px;
+  -moz-border-radius: 32px;
+  border-radius: 32px;
+  border: 1px solid #ddd;
+  font-size: 15px;
+  color: #aaa;
+}
+.seen-by > li img {
+  height: 100%;
+  width: 100%;
+  height: 32px;
+  width: 32px;
+  -webkit-border-radius: 32px;
+  -moz-border-radius: 32px;
+  border-radius: 32px;
 }
 .team-index #page-header {
   display: none;
